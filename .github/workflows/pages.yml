@@ -1,0 +1,42 @@
+name: Deploy Hangzhou guide to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check guide content
+        run: node frontend/tests/content-check.mjs
+      - uses: actions/configure-pages@v6
+      - name: Stage public files only
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          cp frontend/index.html frontend/styles.css frontend/app.js "$RUNNER_TEMP/site/"
+          cp -R frontend/assets "$RUNNER_TEMP/site/assets"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ runner.temp }}/site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
