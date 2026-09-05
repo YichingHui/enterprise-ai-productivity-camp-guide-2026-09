@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 // Independent release-content checks; no browser, network or third-party dependency.
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -140,9 +141,164 @@ for (const cssPath of [path.join(root, 'styles.css')]) {
 }
 for (const resource of resources) check(fs.existsSync(resource) && fs.statSync(resource).isFile(), `本地资源不存在：${path.relative(root, resource)}`);
 
+// Screenshot-revision contract checks. Browser layout and real WeChat still need
+// separate evidence; these checks protect exact content and the fallback paths.
+const css = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
+const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+for (const [id, heading] of [
+  ['schedule-title', '课程时段安排'], ['prepare-title', '学员须知'], ['lecturer-title', '授课老师'],
+]) check(new RegExp(`<h2\\b[^>]*id="${id}"[^>]*>${heading}</h2>`).test(html), `截图指定标题未落实：${heading}`);
+check(/data-testid="survey-link"[^>]*>点击填写问卷\s*</.test(html), '问卷卡片按钮应为“点击填写问卷”。');
+for (const stale of ['现在填写问卷', '两天一夜，按这张日程到场', '带上电脑，无需工具焦虑', '和讲师一起，把方法带进工作', 'AI管理艺术家']) {
+  check(!text.includes(stale), `旧批注文案仍存在：${stale}`);
+}
+const lecturer = html.match(/<section\b[^>]*id="lecturer"[^>]*>([^]*?)<\/section>/)?.[1] || '';
+const lecturerText = decode(lecturer.replace(/<[^>]+>/g, '')).replace(/\s+/g, '');
+const lecturerCopy = [
+  '狼格拉底', '意心会创始人', 'AI提效艺术家', '3家AI原生基因公司创始人',
+  '《企业AI提效实战营》的授课内容是基于真实企业咨询、智能体定制、课程教学和业务落地，形成一套企业AI提效方法。',
+  '讲师本人就是3家公司的老板。课程内容不是概念，也不是播放千篇一律的PPT，而是已践行在公司内部，并服务200+企业客户和上千名学员的真实理论与经过验证的有效方法论。',
+  '国内首批进入AI应用实践的一线老板，多位抖音头部AI博主的AI启蒙老师。',
+  '完成自己公司内容生产、客户管理、知识沉淀、团队协作等核心流程的AI化实践。',
+  '正式对外商业服务，持续主导企业AI化架构和任务型AI智能体的定制开发与落地。',
+];
+for (const copy of lecturerCopy) check(lecturerText.includes(copy), `新讲师截图文案缺失或被改写：${copy}`);
+check(/<h3>2023<\/h3>[^]*<h3>2024<\/h3>[^]*<h3>2025\.04 [–—-] NOW<\/h3>/.test(lecturer), '讲师经历需按 2023、2024、2025.04–NOW 排列。');
+check(!/lecturer-stats|30\+|300\+|assets\/lecturer\.jpg/.test(lecturer), '讲师模块不应保留旧统计卡或旧形象照。');
+const brandTag = html.match(/<a\b[^>]*class="brand"[^>]*>\s*(<img\b[^>]*>)/)?.[1];
+const brand = attrs(brandTag || '');
+check(brand.src === 'assets/logo-white.png' && brand.width === '2127' && brand.height === '599', '页头应使用新白色 Logo 的完整比例。');
+check(/\.brand\{[^}]*background:transparent;[^}]*padding:0/.test(css), '白色透明 Logo 不应留在旧白底卡片中。');
+const logo = fs.readFileSync(path.join(root, 'assets/logo-white.png'));
+check(logo.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) && logo[25] === 6, '白色 Logo 应保留 RGBA PNG 格式和透明通道。');
+check(logo.readUInt32BE(16) === 2127 && logo.readUInt32BE(20) === 599, 'Logo 输出尺寸应保持 2127×599。');
+check(/src="assets\/lecturer-portrait\.webp"[^>]*width="1800"[^>]*height="1198"/.test(lecturer), '新讲师形象照应按完整 1800×1198 比例接入。');
+check(/\.lecturer-image img\{height:auto;width:100%;object-fit:contain;/.test(css), '讲师形象照需使用完整比例适配规则，不裁切画面。');
+check(surveyLinks.length === 3, '本轮应保留 3 个正式问卷入口，不新增收卷接口。');
+check(amapLinks.length === 6, '本轮应保留 6 个原高德入口。');
+const softwareBlock = html.match(/<div\b[^>]*class="software-links"[^>]*>([^]*?)<\/div>/)?.[1] || '';
+const softwareEntries = [
+  ['DoubaoWork', 'https://www.doubao.com/work'],
+  ['WorkBuddy', 'https://www.workbuddy.cn/'],
+  ['Codex', 'https://learn.chatgpt.com/docs/app'],
+];
+for (const [label, url] of softwareEntries) {
+  check([...softwareBlock.matchAll(/<a\b[^>]*>[^]*?<\/a>/g)].some(([tag]) => attrs(tag).href === url && tag.includes(label)), `缺少已核验的 ${label} 官方入口。`);
+}
+check((softwareBlock.match(/<a\b/g) || []).length === 3, '软件入口应仅有本次指定的 3 项。');
+check(compact.includes('不必提前全部安装完毕'), '软件安装应保持非强制，不制造工具焦虑。');
+const brochureLinks = anchors.filter(({ tag }) => /\bdata-image-open(?:\s|>)/.test(tag));
+check(brochureLinks.length === 2, '酒店补充指南应保留两张可放大的图片。');
+for (const [index, expected] of ['assets/hotel-transport.jpg', 'assets/hotel-nearby.jpg'].entries()) {
+  const link = brochureLinks[index]?.attrs || {};
+  check(link.href === expected && link.target !== '_blank', `指南图应提供同页 JPG 原图降级入口：${expected}`);
+  check(Boolean(link['data-image-title']), `指南图缺少可访问弹窗标题：${expected}`);
+  const buffer = fs.readFileSync(path.join(root, expected));
+  check(buffer[0] === 0xff && buffer[1] === 0xd8 && buffer.length < 800 * 1024, `指南 JPG 应格式正确且低于 800 KiB：${expected}`);
+}
+check(compact.includes('点击展开') && compact.includes('点击收起') && compact.includes('点击下方图片即可放大查看'), '交通指南需明确展开、收起与点击放大提示。');
+check(ids.includes('image-dialog') && ids.includes('image-frame') && ids.includes('image-status'), '指南图弹窗缺少画面或加载状态结构。');
+check(/<dialog[^>]*id="image-dialog"[^>]*aria-labelledby="image-title"[^>]*aria-describedby="image-help"/.test(html), '图片弹窗需有可访问标题与操作说明。');
+check(/id="guide-full-image"[^>]*width="1810"[^>]*height="1280"/.test(html), '指南放大图需使用原始 1810×1280 分辨率。');
+check(/data-image-zoom/.test(html) && /data-image-retry/.test(html) && /data-image-close/.test(html), '图片弹窗需保留放大、重试和关闭操作。');
+check(/\.image-frame[^{}]*\{[^}]*overflow:auto/.test(css) && /\.image-frame\.is-zoomed img\{width:1810px;max-width:none/.test(css), '放大图需在独立滚动区查看，不能挤宽正文。');
+check(/#image-dialog \[hidden\]\{display:none!important\}/.test(css), '弹窗加载和错误状态的 hidden 不能被 display 规则覆盖。');
+const dayLabels = [...html.matchAll(/class="day-label">([^<]+)</g)].map(match => match[1]);
+check(dayLabels.length === 2 && dayLabels[0] === '从业务到 AI 员工' && dayLabels[1] === '从单点到业务系统', '两日日程标签应保持完整原文。');
+check(/\.day-label\{[^}]*max-width:none;white-space:nowrap/.test(css), '日程标签应有取消宽度上限且不换行的覆盖规则。');
+check(/\.day-card>header\{display:grid;grid-template-columns:1fr auto/.test(css) && /\.day-card>header h3\{grid-column:1 \/ -1;grid-row:2\}/.test(css), '手机日期应独占第二行，为右侧标签保留空间。');
+check(!/\bfetch\s*\(|XMLHttpRequest|localStorage|sessionStorage/.test(app), '本轮不应添加后台写入或未经验证的提交状态存储。');
+
+const staticChecks = checks;
+
+// Isolated DOM model: exercise our image viewer state machine without a browser
+// or network. This deliberately does not claim device/image-decoding coverage.
+function viewerModel() {
+  let document;
+  class Element {
+    constructor(id = '') {
+      this.id = id; this.handlers = {}; this.dataset = {}; this.attributes = {};
+      this.hidden = false; this.disabled = false; this.open = false; this.textContent = '';
+      const values = new Set();
+      this.classList = {
+        add: value => values.add(value), remove: value => values.delete(value),
+        contains: value => values.has(value),
+        toggle(value) { if (values.has(value)) { values.delete(value); return false; } values.add(value); return true; },
+      };
+    }
+    addEventListener(name, handler) { (this.handlers[name] ||= []).push(handler); }
+    emit(name, options = {}) {
+      const event = { target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...options };
+      for (const handler of this.handlers[name] || []) handler(event);
+      return event;
+    }
+    setAttribute(name, value) { this.attributes[name] = value; }
+    removeAttribute(name) { delete this.attributes[name]; if (name === 'src') { this.complete = false; this.naturalWidth = 0; } }
+    querySelector(selector) { return this.children?.[selector] || null; }
+    focus() { document.activeElement = this; }
+    scrollTo(x, y) { this.scrollLeft = x; this.scrollTop = y; }
+    showModal() { this.open = true; }
+    close() { this.open = false; this.emit('close'); }
+    getBoundingClientRect() { return { left: 10, right: 100, top: 10, bottom: 100 }; }
+  }
+  const elements = Object.fromEntries(['toast', 'qr-dialog', 'image-dialog', 'guide-full-image', 'image-frame', 'image-status', 'image-original', 'image-title', 'qr-close', 'image-close', 'image-zoom', 'image-retry'].map(id => [id, new Element(id)]));
+  elements['qr-dialog'].children = { '[data-qr-close]': elements['qr-close'] };
+  elements['image-dialog'].children = { '[data-image-close]': elements['image-close'], '[data-image-zoom]': elements['image-zoom'], '[data-image-retry]': elements['image-retry'] };
+  const links = brochureLinks.map(({ attrs: a }) => Object.assign(new Element(), { href: a.href, dataset: { imageTitle: a['data-image-title'] } }));
+  const qrLink = new Element();
+  document = {
+    body: new Element('body'), activeElement: null,
+    getElementById: id => elements[id],
+    querySelectorAll: selector => ({ '[data-copy]': [], '[data-qr-open]': [qrLink], '[data-image-open]': links })[selector] || [],
+  };
+  let timerId = 0;
+  const timers = new Map();
+  const window = {
+    setTimeout: (fn, delay) => { const id = ++timerId; timers.set(id, { fn, delay }); return id; },
+    clearTimeout: id => timers.delete(id),
+  };
+  vm.runInNewContext(app, { document, window, navigator: {} }, { filename: 'app.js', timeout: 1000 });
+  return { document, elements, links, qrLink, timers };
+}
+const model = viewerModel();
+const { elements: e, links: modelLinks, document: modelDoc, timers } = model;
+const imageDialog = e['image-dialog'];
+const fullImage = e['guide-full-image'];
+check(modelLinks[0].emit('click').defaultPrevented && imageDialog.open, 'DOM 模型：首张指南应在同页弹窗打开。');
+check(fullImage.src === 'assets/hotel-transport.jpg' && e['image-original'].href === fullImage.src, 'DOM 模型：弹窗与原图入口应使用同一张 JPG。');
+check(e['image-frame'].hidden && !e['image-status'].hidden && e['image-zoom'].disabled, 'DOM 模型：图片未加载时应展示加载状态并禁用放大。');
+fullImage.complete = true; fullImage.naturalWidth = 1810; fullImage.emit('load');
+check(!e['image-frame'].hidden && e['image-status'].hidden && !e['image-zoom'].disabled && timers.size === 0, 'DOM 模型：加载成功应显示图片、启用放大并清理超时。');
+e['image-zoom'].emit('click');
+check(e['image-frame'].classList.contains('is-zoomed') && e['image-zoom'].attributes['aria-pressed'] === 'true', 'DOM 模型：放大应同时更新视觉与可访问状态。');
+e['image-zoom'].emit('click');
+check(!e['image-frame'].classList.contains('is-zoomed') && e['image-zoom'].attributes['aria-pressed'] === 'false', 'DOM 模型：再次点击应适应屏幕。');
+e['image-close'].emit('click');
+check(!imageDialog.open && !modelDoc.body.classList.contains('modal-open') && modelDoc.activeElement === modelLinks[0], 'DOM 模型：关闭应解除滚动锁并归还触发入口焦点。');
+modelLinks[1].emit('click');
+check(fullImage.src === 'assets/hotel-nearby.jpg' && e['image-title'].textContent === '酒店周边餐饮与出行指南', 'DOM 模型：第二张图片应替换来源、标题及原图入口。');
+fullImage.emit('error');
+check(!e['image-retry'].hidden && !e['image-status'].hidden && e['image-frame'].hidden && e['image-zoom'].disabled, 'DOM 模型：加载失败应明确提示并提供重试。');
+e['image-retry'].emit('click');
+check(fullImage.src === 'assets/hotel-nearby.jpg' && e['image-retry'].hidden && timers.size === 1, 'DOM 模型：重试应保持当前图并重新计时。');
+const timeout = [...timers.values()][0];
+check(timeout?.delay === 15000, 'DOM 模型：未返回的图片请求应有 15 秒错误提示。');
+timeout?.fn();
+check(!e['image-retry'].hidden && e['image-status'].textContent.includes('打开 JPG 原图'), 'DOM 模型：超时应提供原图降级而非空白弹窗。');
+fullImage.complete = true; fullImage.naturalWidth = 1810; fullImage.emit('load');
+check(!e['image-frame'].hidden && e['image-retry'].hidden && !e['image-zoom'].disabled, 'DOM 模型：慢网晚到的成功图片应从超时状态恢复。');
+imageDialog.emit('click', { clientX: 0, clientY: 0 });
+check(!imageDialog.open && modelDoc.activeElement === modelLinks[1], 'DOM 模型：点击弹窗外部应关闭并归还焦点。');
+imageDialog.showModal = undefined;
+check(!modelLinks[0].emit('click').defaultPrevented, 'DOM 模型：不支持 dialog 的浏览器不得拦截 JPG 原图链接。');
+model.qrLink.emit('click');
+check(e['qr-dialog'].open && modelDoc.body.classList.contains('modal-open'), 'DOM 模型：经理二维码原有弹窗仍可打开。');
+e['qr-close'].emit('click');
+check(!e['qr-dialog'].open && modelDoc.activeElement === model.qrLink && !modelDoc.body.classList.contains('modal-open'), 'DOM 模型：经理二维码关闭仍应释放焦点与滚动。');
+
 if (failures.length) {
   console.error(`FAIL: ${failures.length}/${checks} 项静态验收未通过：\n${failures.map((message, index) => `${index + 1}. ${message}`).join('\n')}`);
   process.exit(1);
 }
-console.log(`PASS: ${checks} 项静态验收；${surveyLinks.length} 个正式问卷入口；${amapLinks.length} 个高德入口；${images.length} 张图片；${resources.size} 个本地资源。`);
-console.log('边界：以上不代表真实微信、二维码识别、地图拉起、飞书提交或动态交互已通过；这些由实际浏览器验收确认。');
+console.log(`PASS: ${staticChecks} 项静态验收 + ${checks - staticChecks} 项隔离 DOM 模型验收；${surveyLinks.length} 个正式问卷入口；${amapLinks.length} 个高德入口；${images.length} 张图片；${resources.size} 个本地资源。`);
+console.log('边界：以上不代表真实微信、二维码识别、地图拉起、飞书提交、图片实际解码或响应式排版已通过；这些由实际浏览器和真机验收确认。');

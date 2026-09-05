@@ -17,7 +17,9 @@
 
 源码仓库：[GitHub](https://github.com/YichingHui/enterprise-ai-productivity-camp-guide-2026-09)。
 
-上线验证：`node scripts/verify-live.mjs`，只读回取12个静态文件，核验HTTP及SHA-256，不操作正式问卷。
+上线验证：`node scripts/verify-live.mjs`，只读回取HTML、CSS、JS及当前全部素材，核验HTTP及SHA-256，不操作正式问卷。
+
+截图修订的独立验收见 `docs/REVISION-QA.md`；软件下载入口核对见 `docs/SOFTWARE-LINKS.md`。交通指南支持页内查看高清 JPG、放大细节和原图回退。
 
 GitHub Pages 只发布 `frontend/` 中的HTML/CSS/JS/assets，内部说明、测试脚本、测试报告和分享二维码不作为网站目录发布。源码仓库为公开仓库；不得写入凭据、学员信息或临时认证链接。
 
