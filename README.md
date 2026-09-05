@@ -32,3 +32,5 @@ GitHub Pages 只发布 `frontend/` 中的HTML/CSS/JS/assets，内部说明、测
 ## 更新与恢复
 
 在功能/修复分支更改，运行内容检查并预览，再合并到main推送，触发Pages。工作流只监听前端与工作流文件变化，文档更新不触发部署。恢复使用git revert提交，不强制覆盖历史。首次部署运行与完整证据见 `docs/TEST-REPORT.md`。
+
+修改样式或脚本时，同步更新 HTML 中两处 `?v=` 发布标识，避免旧标签页复用缓存。若推送后没有新 Pages 运行，使用 `gh workflow run pages.yml --ref main` 显式触发；先查看运行列表，避免重复发布。

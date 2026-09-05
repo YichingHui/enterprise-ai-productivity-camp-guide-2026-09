@@ -209,6 +209,9 @@ check(/\.day-label\{[^}]*max-width:none;white-space:nowrap/.test(css), '日程�
 check(/\.day-card>header\{display:grid;grid-template-columns:1fr auto/.test(css) && /\.day-card>header h3\{grid-column:1 \/ -1;grid-row:2\}/.test(css), '手机日期应独占第二行，为右侧标签保留空间。');
 check(!/\bfetch\s*\(|XMLHttpRequest|localStorage|sessionStorage/.test(app), '本轮不应添加后台写入或未经验证的提交状态存储。');
 
+const cssVersion = html.match(/href="styles\.css\?v=([^"&]+)"/)?.[1];
+const appVersion = html.match(/src="app\.js\?v=([^"&]+)"/)?.[1];
+check(Boolean(cssVersion) && cssVersion === appVersion, '样式和脚本需使用一致的发布版本参数，避免回访时混入旧缓存。');
 const staticChecks = checks;
 
 // Isolated DOM model: exercise our image viewer state machine without a browser
